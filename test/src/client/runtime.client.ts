@@ -8,7 +8,7 @@ import("shared/testShared").expect();
 class ClientStorage extends ValueStorage {
 	@Subscribe((state) => state.Value)
 	private a(val: number) {
-		print(`client ${val}`);
+		print(`client ${val}`, this.GetFullId());
 	}
 
 	protected onStart() {}

@@ -5,6 +5,7 @@ import { Constructor, WrapSubscriber } from "../types";
 import Maid from "@rbxts/maid";
 import { Storage } from "./Storage";
 import { subscribers } from "./decorators/subscribe";
+import { SelectShared } from "../state/slices/selectors";
 
 function CallMethod<T extends Callback>(func: T, context: InferThis<T>, ...parameters: Parameters<T>): ReturnType<T> {
 	return func(context, ...(parameters as unknown[]));
@@ -49,13 +50,26 @@ export abstract class Shared<S extends object = object> {
 		this.initSubscribers();
 		this.subcribeState();
 
+		IsClient &&
+			this._maid.GiveTask(
+				rootProducer.subscribe(SelectShared(this.GetFullId()), (state) => {
+					if (state) return;
+					this.Destroy();
+				}),
+			);
+
+		this._maid.GiveTask(() => rootProducer.ClearInstance(this.GetFullId()));
+
 		IsServer && rootProducer.Dispatch(this.GetFullId(), this.state);
 		this.onStart();
 	}
 
 	protected onStart() {}
 
+	protected onDestroy() {}
+
 	public Destroy() {
+		this.onDestroy();
 		this._maid.Destroy();
 	}
 
@@ -112,6 +126,10 @@ export abstract class Shared<S extends object = object> {
 		return subscriber;
 	}
 
+	protected flush() {
+		rootProducer.flush();
+	}
+
 	/**
 	 * @internal
 	 * @hidden
@@ -126,7 +144,7 @@ export abstract class Shared<S extends object = object> {
 	}
 
 	private changeId(prefix: Prefix, id: string) {
-		this.id && this.prefix !== Prefix.Server && rootProducer.ClearInstance(this.id);
+		this.id && this.prefix !== Prefix.Server && rootProducer.ClearInstance(this.GetFullId());
 		this.id = id;
 		this.prefix = prefix;
 
@@ -149,8 +167,8 @@ export abstract class Shared<S extends object = object> {
 			rootProducer.subscribe(
 				(state) => state.replication.States.get(this.GetFullId()),
 				(state, previousState) => {
-					this.state = state as S;
-					this.previousState = previousState as S;
+					this.state = (state as S) ?? this.state;
+					this.previousState = (previousState as S) ?? this.previousState;
 				},
 			),
 		);

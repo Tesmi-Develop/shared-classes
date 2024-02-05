@@ -9,11 +9,18 @@ class ServerStorage extends ValueStorage {
 	protected onStart(): void {
 		task.spawn(() => {
 			// eslint-disable-next-line no-constant-condition
-			while (true) {
-				task.wait(1);
+			let k = 0;
+			while (k < 2) {
+				task.wait(10);
 				this.increment();
+				k++;
 			}
+			this.Destroy();
 		});
+	}
+
+	protected onDestroy(): void {
+		print("destroyed", this.GetFullId());
 	}
 
 	@Action()
@@ -27,4 +34,7 @@ class ServerStorage extends ValueStorage {
 
 SharedClasses.StartServer();
 
+new ServerStorage().Start();
+
+task.wait(5);
 new ServerStorage().Start();

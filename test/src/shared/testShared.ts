@@ -1,5 +1,4 @@
 import { Shared } from "../source/Shared";
-import { Action, SharedSubscribe } from "../source/decorators";
 
 interface State {
 	Value: number;

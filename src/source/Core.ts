@@ -95,46 +95,29 @@ export namespace SharedClasses {
 		rootProducer.applyMiddleware(receiver.middleware);
 		initSharedClasses();
 
-		rootProducer.once(
-			(state) => state.replication.States,
-			(states) => {
-				createClientInstances();
+		rootProducer.observe(
+			(state) => state.replication.InstanceIds,
+			(state, id) => id,
+			(_, index) => {
+				createClientInstance(index as string);
 			},
 		);
 	};
 
-	const createInstanceOfSharedClass = (
-		sharedClass: Constructor<Shared<object>>,
-		args: unknown[],
-		constructor: Constructor<Shared<object>>,
-	) => {
-		const fields = {};
-		const instance = setmetatable({}, sharedClass as object) as Shared<object>;
-		const typedConstructor = constructor as unknown as { constructor: (...args: unknown[]) => void };
-		const typedSharedClass = sharedClass as unknown as { constructor: (...args: unknown[]) => void };
-		typedConstructor.constructor(instance, ...args);
+	const createClientInstance = (id: string) => {
+		const spiledId = id.split("-");
+		const metadata = spiledId[1]; // example id: server-className-0
+		const sharedClassConstructor = Storage.SharedClasses.get(metadata);
+		if (!sharedClassConstructor) {
+			logWarning(`Shared class with name ${metadata} not registery`);
+			return;
+		}
+		const childSharedClass = Storage.SharedClassLinks.get(sharedClassConstructor)!;
+		const args = rootProducer.getState().replication.InstanceArguments.get(id) ?? [];
 
-		print(typedSharedClass.constructor);
-		print(debug.info(typedSharedClass.constructor, "a"));
-		return instance;
-	};
-
-	const createClientInstances = () => {
-		rootProducer.getState().replication.States.forEach((_, id) => {
-			const spiledId = id.split("-");
-			const metadata = spiledId[1]; // example id: server-className-0
-			const sharedClassConstructor = Storage.SharedClasses.get(metadata);
-			if (!sharedClassConstructor) {
-				logWarning(`Shared class with name ${metadata} not registery`);
-				return;
-			}
-			const childSharedClass = Storage.SharedClassLinks.get(sharedClassConstructor)!;
-			const args = rootProducer.getState().replication.InstanceArguments.get(id) ?? [];
-
-			const instance = new childSharedClass(...(args as never[]));
-			instance.Start();
-			instance.SetServerId(spiledId[2]);
-		});
+		const instance = new childSharedClass(...(args as never[]));
+		instance.Start();
+		instance.SetServerId(spiledId[2]);
 	};
 
 	export const GetSharedDescendant = (constructor: Constructor<Shared<object>>) => {
