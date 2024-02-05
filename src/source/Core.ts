@@ -67,12 +67,12 @@ export namespace SharedClasses {
 			producers: Slices,
 
 			dispatch: (player, actions) => {
-				remotes._dispatch.fire(player, actions);
+				remotes._shared_class_dispatch.fire(player, actions);
 			},
 		});
 
 		rootProducer.applyMiddleware(broadcaster.middleware);
-		remotes._start.connect((player) => broadcaster.start(player));
+		remotes._shared_class_start.connect((player) => broadcaster.start(player));
 		initSharedClasses();
 	};
 
@@ -84,11 +84,11 @@ export namespace SharedClasses {
 
 		receiver = createBroadcastReceiver({
 			start: () => {
-				remotes._start.fire();
+				remotes._shared_class_start.fire();
 			},
 		});
 
-		remotes._dispatch.connect((actions) => {
+		remotes._shared_class_dispatch.connect((actions) => {
 			receiver.dispatch(actions);
 		});
 

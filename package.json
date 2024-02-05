@@ -1,13 +1,14 @@
 {
   "name": "@rbxts/shared-classes-reflex",
-  "version": "1.0.2",
+  "version": "1.0.32",
   "description": "",
   "main": "out/init.lua",
   "scripts": {
     "build": "rbxtsc",
     "watch": "rbxtsc -w",
     "test:watch": "rbxtsc -w --type=game -p test -i test/include",
-    "serve": "rojo serve test/default.project.json"
+    "serve": "rojo serve test/default.project.json",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [],
   "author": "tesmi",

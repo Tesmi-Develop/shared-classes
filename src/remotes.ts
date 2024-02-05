@@ -3,7 +3,7 @@ import { Client, Server, createRemotes, remote } from "@rbxts/remo";
 import { t } from "@rbxts/t";
 
 export const remotes = createRemotes({
-	_dispatch: remote<Client, [Actions: BroadcastAction[]]>(
+	_shared_class_dispatch: remote<Client, [Actions: BroadcastAction[]]>(
 		t.array(
 			t.interface({
 				name: t.string,
@@ -11,5 +11,5 @@ export const remotes = createRemotes({
 			}),
 		),
 	),
-	_start: remote<Server, []>(),
+	_shared_class_start: remote<Server, []>(),
 });
