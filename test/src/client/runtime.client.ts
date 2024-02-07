@@ -11,6 +11,11 @@ class ClientStorage extends ValueStorage {
 		print(`client ${val}`, this.GetFullId());
 	}
 
+	@Subscribe((state) => state.Config)
+	private b(val: typeof this.state.Config) {
+		print(`changed config ${val}`, this.GetFullId());
+	}
+
 	protected onStart() {}
 }
 

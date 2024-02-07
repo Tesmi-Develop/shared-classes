@@ -13,8 +13,10 @@ const initialState: State = {
 	InstanceIds: new Set(),
 };
 
+export const DISPATCH = "Dispatch";
+
 export const replicationSlice = createProducer(initialState, {
-	Dispatch: (state, key: string, newState: defined) => {
+	[DISPATCH]: (state, key: string, newState: defined) => {
 		return produce(state, (draft) => {
 			draft.States.set(key, newState);
 			draft.InstanceIds.add(key);

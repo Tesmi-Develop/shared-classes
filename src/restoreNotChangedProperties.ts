@@ -10,7 +10,7 @@ export function restoreNotChangedProperties<T extends object, C extends object>(
 			const newObject = restoreNotChangedProperties(value, originalValue);
 			if (newObject !== originalValue) {
 				isDifferentObjects = true;
-				break;
+				continue;
 			}
 			table1[index as keyof T] = newObject as never;
 			continue;
@@ -18,7 +18,7 @@ export function restoreNotChangedProperties<T extends object, C extends object>(
 
 		if (originalValue !== value) {
 			isDifferentObjects = true;
-			break;
+			continue;
 		}
 	}
 

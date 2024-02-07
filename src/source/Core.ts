@@ -10,39 +10,19 @@ import { remotes } from "../remotes";
 import { rootProducer } from "../state/rootProducer";
 import { Slices } from "../state/slices";
 import { Constructor } from "../types";
-import {
-	CreateGeneratorId,
-	IsClient,
-	IsServer,
-	logAssert,
-	logWarning,
-} from "../utilities";
+import { CreateGeneratorId, IsClient, IsServer, logAssert, logWarning } from "../utilities";
 import { Shared } from "./Shared";
 import { Storage } from "./Storage";
 import { ReplicatedStorage, RunService } from "@rbxts/services";
 import { restoreNotChangedProperties } from "../restoreNotChangedProperties";
+import { DISPATCH } from "../state/slices/replication";
+import { SelectShared } from "../state/slices/selectors";
 
 const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
 
 interface ConstructorWithIndex<T extends object = object> extends Constructor<T> {
 	__index: object;
 }
-
-const state = {
-	a: {
-		b: 1,
-	},
-
-	c: 2,
-};
-
-const state2 = {
-	a: {
-		b: 1,
-	},
-
-	c: 2,
-};
 
 const devToolMiddleware: ProducerMiddleware = () => {
 	return (nextAction, actionName) => {
@@ -53,6 +33,26 @@ const devToolMiddleware: ProducerMiddleware = () => {
 			}
 
 			return state;
+		};
+	};
+};
+
+const restoreNotChangedStateMiddleware: ProducerMiddleware = () => {
+	return (nextAction, actionName) => {
+		return (...args) => {
+			if (actionName === DISPATCH) {
+				const [id, newState] = args as Parameters<(typeof rootProducer)[typeof DISPATCH]>;
+				const typedAction = nextAction as (typeof rootProducer)[typeof DISPATCH];
+				const oldState = rootProducer.getState(SelectShared(id));
+
+				if (oldState === undefined || newState === undefined) return newState;
+
+				const validatedState = restoreNotChangedProperties(newState, oldState);
+
+				return typedAction(id, validatedState);
+			}
+
+			return nextAction(...args);
 		};
 	};
 };
@@ -134,7 +134,7 @@ export namespace SharedClasses {
 			receiver.dispatch(actions);
 		});
 
-		rootProducer.applyMiddleware(receiver.middleware);
+		rootProducer.applyMiddleware(receiver.middleware, restoreNotChangedStateMiddleware);
 		initSharedClasses();
 
 		rootProducer.observe(
