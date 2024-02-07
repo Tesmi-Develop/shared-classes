@@ -14,7 +14,7 @@ export const Action = () => {
 
 		descriptor.value = function (this: T, ...args: unknown[]) {
 			const result = originalMethod(this, ...args);
-			rootProducer.Dispatch(this.GetFullId(), result);
+			this.Dispatch(result);
 
 			return result;
 		};

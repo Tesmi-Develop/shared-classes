@@ -91,6 +91,26 @@ export abstract class Shared<S extends object = object> {
 		return this.state as Readonly<S>;
 	}
 
+	private updateState() {
+		const oldState = this.state;
+		this.state = (rootProducer.getState(SelectShared(this.GetFullId())) as S) ?? this.state;
+
+		if (oldState !== this.state) {
+			this.previousState = oldState;
+		}
+	}
+
+	/**
+	 * Dispatches the given state
+	 *
+	 * @param {S} state - the new state to be dispatched
+	 */
+	public Dispatch(state: S) {
+		this.previousState = this.state;
+		this.state = state;
+		rootProducer.Dispatch(this.GetFullId(), this.state);
+	}
+
 	/**
 	 * Subscribe to changes in the state and attach a listener.
 	 *
@@ -104,7 +124,10 @@ export abstract class Shared<S extends object = object> {
 		listener: (state: R, previousState: R) => void,
 		predicate?: (state: R, previousState: R) => boolean,
 	): WrapSubscriber {
-		const disconnect = rootProducer.subscribe(this.wrapSelector(selector), predicate, listener);
+		const disconnect = rootProducer.subscribe(this.wrapSelector(selector), predicate, (state, previusState) => {
+			this.updateState();
+			listener(state, previusState);
+		});
 		const subscriber = {
 			Disconnect: disconnect,
 
@@ -144,10 +167,12 @@ export abstract class Shared<S extends object = object> {
 	}
 
 	private changeId(prefix: Prefix, id: string) {
+		this.id && GetCore().RemoveSharedInstance(this.GetFullId());
 		this.id && this.prefix !== Prefix.Server && rootProducer.ClearInstance(this.GetFullId());
 		this.id = id;
 		this.prefix = prefix;
 
+		this.id && GetCore().RegisterSharedInstance(this, this.GetFullId());
 		// This method has to be called in the constructor when the state is not ready yet
 		if (!this.state) {
 			return;
@@ -191,11 +216,11 @@ export abstract class Shared<S extends object = object> {
 		task.spawn(() => {
 			subscribes.forEach((subscriber) => {
 				this._maid.GiveTask(
-					rootProducer.subscribe<unknown>(
-						this.wrapSelector(subscriber.selector),
-						subscriber.predicate,
+					this.Subscribe(
+						subscriber.selector,
 						(state, previousState) => CallMethod(subscriber.callback, this, state as S, previousState as S),
-					),
+						subscriber.predicate,
+					).Disconnect,
 				);
 			});
 		});

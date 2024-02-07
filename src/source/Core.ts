@@ -10,16 +10,39 @@ import { remotes } from "../remotes";
 import { rootProducer } from "../state/rootProducer";
 import { Slices } from "../state/slices";
 import { Constructor } from "../types";
-import { CreateGeneratorId, IsClient, IsServer, logAssert, logWarning } from "../utilities";
+import {
+	CreateGeneratorId,
+	IsClient,
+	IsServer,
+	logAssert,
+	logWarning,
+} from "../utilities";
 import { Shared } from "./Shared";
 import { Storage } from "./Storage";
 import { ReplicatedStorage, RunService } from "@rbxts/services";
+import { restoreNotChangedProperties } from "../restoreNotChangedProperties";
 
 const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
 
 interface ConstructorWithIndex<T extends object = object> extends Constructor<T> {
 	__index: object;
 }
+
+const state = {
+	a: {
+		b: 1,
+	},
+
+	c: 2,
+};
+
+const state2 = {
+	a: {
+		b: 1,
+	},
+
+	c: 2,
+};
 
 const devToolMiddleware: ProducerMiddleware = () => {
 	return (nextAction, actionName) => {
@@ -57,6 +80,24 @@ export namespace SharedClasses {
 		rootProducer.applyMiddleware(devToolMiddleware);
 	};
 
+	/**
+	 * @hidden
+	 */
+	export const RegisterSharedInstance = (instance: Shared, id: string) => {
+		Storage.SharedInstances.set(id, instance);
+	};
+
+	/**
+	 * @hidden
+	 */
+	export const RemoveSharedInstance = (id: string) => {
+		Storage.SharedInstances.delete(id);
+	};
+
+	export const GetSharedInstanceFromId = (id: string) => {
+		return Storage.SharedInstances.get(id);
+	};
+
 	export const StartServer = () => {
 		logAssert(IsServer, "StartServer can only be used on the server");
 
@@ -65,6 +106,7 @@ export namespace SharedClasses {
 
 		broadcaster = createBroadcaster({
 			producers: Slices,
+			hydrateRate: -1,
 
 			dispatch: (player, actions) => {
 				remotes._shared_class_dispatch.fire(player, actions);
