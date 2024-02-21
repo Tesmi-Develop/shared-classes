@@ -17,6 +17,8 @@ import { ReplicatedStorage, RunService } from "@rbxts/services";
 import { restoreNotChangedProperties } from "../restoreNotChangedProperties";
 import { DISPATCH } from "../state/slices/replication";
 import { SelectShared } from "../state/slices/selectors";
+import Immut from "@rbxts/immut";
+import { t } from "@rbxts/t";
 
 const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
 
@@ -45,7 +47,7 @@ const restoreNotChangedStateMiddleware: ProducerMiddleware = () => {
 				const typedAction = nextAction as (typeof rootProducer)[typeof DISPATCH];
 				const oldState = rootProducer.getState(SelectShared(id));
 
-				if (oldState === undefined || newState === undefined) return newState;
+				if (oldState === undefined || newState === undefined) return nextAction(...args);
 
 				const validatedState = restoreNotChangedProperties(newState, oldState);
 
@@ -73,6 +75,7 @@ export namespace SharedClasses {
 
 	/**
 	 * @hidden
+	 * @internal
 	 */
 	export const GenerateId = () => generator.Next();
 
@@ -82,6 +85,7 @@ export namespace SharedClasses {
 
 	/**
 	 * @hidden
+	 * @internal
 	 */
 	export const RegisterSharedInstance = (instance: Shared, id: string) => {
 		Storage.SharedInstances.set(id, instance);
@@ -89,6 +93,7 @@ export namespace SharedClasses {
 
 	/**
 	 * @hidden
+	 * @internal
 	 */
 	export const RemoveSharedInstance = (id: string) => {
 		Storage.SharedInstances.delete(id);
@@ -107,6 +112,43 @@ export namespace SharedClasses {
 		broadcaster = createBroadcaster({
 			producers: Slices,
 			hydrateRate: -1,
+
+			beforeDispatch: (player, action) => {
+				if (action.name !== DISPATCH) return action;
+
+				const [id] = action.arguments as Parameters<(typeof rootProducer)[typeof DISPATCH]>;
+				const shared = GetSharedInstanceFromId(id);
+				logAssert(shared, `Component with id ${id} is not found`);
+				const players = shared.ResolveReplicationForPlayers();
+
+				if (!players) return action;
+
+				if (!t.array(t.any)(players)) {
+					return player === players ? action : undefined;
+				}
+
+				return players.includes(player) ? action : undefined;
+			},
+
+			beforeHydrate: (player, state) => {
+				return Immut.produce(state, (draft) => {
+					const states = draft.replication.States;
+
+					states.forEach((_, id) => {
+						const shared = GetSharedInstanceFromId(id);
+						logAssert(shared, `Component with id ${id} is not found`);
+						const players = shared.ResolveReplicationForPlayers();
+
+						if (!players) return;
+
+						if (!t.array(t.any)(players)) {
+							return player !== players && states.delete(id);
+						}
+
+						return !players.includes(player) && states.delete(id);
+					});
+				});
+			},
 
 			dispatch: (player, actions) => {
 				remotes._shared_class_dispatch.fire(player, actions);

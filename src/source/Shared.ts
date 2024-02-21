@@ -6,6 +6,7 @@ import Maid from "@rbxts/maid";
 import { Storage } from "./Storage";
 import { subscribers } from "./decorators/subscribe";
 import { SelectShared } from "../state/slices/selectors";
+import { Players } from "@rbxts/services";
 
 function CallMethod<T extends Callback>(func: T, context: InferThis<T>, ...parameters: Parameters<T>): ReturnType<T> {
 	return func(context, ...(parameters as unknown[]));
@@ -36,6 +37,10 @@ export abstract class Shared<S extends object = object> {
 		);
 		this.metadata = `${GetCore().GetSharedDescendant(getmetatable(this) as Constructor<Shared>)}`;
 		this.applyId();
+	}
+
+	public ResolveReplicationForPlayers(): Player | Player[] | undefined {
+		return undefined;
 	}
 
 	/**
