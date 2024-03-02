@@ -55,13 +55,15 @@ export namespace SharedClasses {
 		const shareds = await remotes._shared_class_get_all_instances();
 
 		shareds.forEach((info) => {
-			const instance = createSharedInstance(info)?.Start();
+			const instance = createSharedInstance(info);
 			instance?.__SetId(info.Id);
+			instance?.Start();
 		});
 
 		remotes._shared_class_created_new_instance.connect((info) => {
-			const instance = createSharedInstance(info)?.Start();
+			const instance = createSharedInstance(info);
 			instance?.__SetId(info.Id);
+			instance?.Start();
 		});
 
 		remotes._shared_class_destroy_instance.connect((id) => {
