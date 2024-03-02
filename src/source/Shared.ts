@@ -115,6 +115,7 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 			},
 
 			OnPatch: (action) => {
+				this.state = this.producer.getState();
 				if (!this.isEnableDevTool || !event) return;
 
 				event.FireServer({
