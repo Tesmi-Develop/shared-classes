@@ -141,7 +141,7 @@ export namespace SharedClasses {
 			return;
 		}
 		args = FindArguments(Storage.SharedClasseTrees.get(sharedClasses[0])!);
-		return new sharedClasses[0]();
+		return new sharedClasses[0](...args as never[]);
 	};
 
 	const modifySharedConstructor = (constructor: Constructor<Shared<object>>) => {
