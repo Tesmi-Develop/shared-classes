@@ -114,8 +114,8 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 				remotes._shared_class_start.fire(this.id);
 			},
 
-			OnHydration: () => {
-				this.state = this.producer.getState();
+			OnHydration: (state) => {
+				this.state = state as S;
 			},
 
 			OnPatch: (action) => {
