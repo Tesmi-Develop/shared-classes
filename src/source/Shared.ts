@@ -19,7 +19,7 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 	protected broadcaster!: ReturnType<typeof CreatePatchBroadcaster<S>>;
 	protected receiver!: ReturnType<typeof createPatchBroadcastReceiver>;
 	private tree: Constructor[];
-	private id: string;
+	private id!: string;
 	private connection?: () => void;
 	/** @client */
 	protected isBlockingServerDispatches = false;
@@ -31,8 +31,10 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 
 	constructor() {
 		super();
-		this.id = generatorId.Next();
-		Storage.SharedClassById.set(this.id, this);
+		if (IsServer) {
+			this.id = generatorId.Next();
+			Storage.SharedClassById.set(this.id, this);
+		}
 		const tree = Storage.SharedClasseTrees.get(this.getConstructor());
 		assert(tree, `Shared class ${this.getConstructor()} is not decorated`);
 		this.tree = tree;
@@ -49,6 +51,7 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 	/** @internal @hidden */
 	public __SetId(id: string) {
 		this.id = id;
+		Storage.SharedClassById.set(this.id, this);
 	}
 
 	/** @client */

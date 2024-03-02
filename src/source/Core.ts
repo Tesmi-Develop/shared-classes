@@ -57,13 +57,11 @@ export namespace SharedClasses {
 		shareds.forEach((info) => {
 			const instance = createSharedInstance(info)?.Start();
 			instance?.__SetId(info.Id);
-			instance && Storage.SharedClassById.set(info.Id, instance);
 		});
 
 		remotes._shared_class_created_new_instance.connect((info) => {
 			const instance = createSharedInstance(info)?.Start();
 			instance?.__SetId(info.Id);
-			instance && Storage.SharedClassById.set(info.Id, instance);
 		});
 
 		remotes._shared_class_destroy_instance.connect((id) => {
