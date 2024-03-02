@@ -1,46 +1,144 @@
-import { Selector } from "@rbxts/reflex";
-import { RootState, rootProducer } from "../state/rootProducer";
-import { IsClient, IsServer, logAssert } from "../utilities";
-import { Constructor, WrapSubscriber } from "../types";
-import Maid from "@rbxts/maid";
+import { CreateGeneratorId, GetConstructorIdentifier, IsClient, IsServer } from "../utilities";
 import { Storage } from "./Storage";
-import { subscribers } from "./decorators/subscribe";
-import { SelectShared } from "../state/slices/selectors";
-import { Players } from "@rbxts/services";
+import { ClassProducer, CreatePatchBroadcaster, createPatchBroadcastReceiver } from "@rbxts/reflex-class";
+import { Constructor } from "@flamework/core/out/utility";
+import { BroadcastAction, ProducerMiddleware } from "@rbxts/reflex";
+import { remotes } from "../remotes";
+import { ReplicatedStorage, RunService } from "@rbxts/services";
+import { Pointer } from "./pointer";
+import { SharedInfo } from "../types";
 
-function CallMethod<T extends Callback>(func: T, context: InferThis<T>, ...parameters: Parameters<T>): ReturnType<T> {
-	return func(context, ...(parameters as unknown[]));
-}
+const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
+const generatorId = CreateGeneratorId();
 
-enum Prefix {
-	Server = "Server",
-	Client = "Client",
-}
-
-const GetCore = () => {
-	return import("./Core").expect().SharedClasses;
-};
-
-export abstract class Shared<S extends object = object> {
+export abstract class Shared<S extends object = object> extends ClassProducer<S> {
 	protected abstract state: S;
 	protected previousState!: S;
+	protected pointer: Pointer | undefined;
 	private isStarted = false;
-	private id!: string;
-	private prefix!: string;
-	private metadata: string;
-	private _maid = new Maid();
+	protected broadcaster!: ReturnType<typeof CreatePatchBroadcaster<S>>;
+	protected receiver!: ReturnType<typeof createPatchBroadcastReceiver>;
+	private tree: Constructor[];
+	private id: string;
+	private connection?: () => void;
+	/** @client */
+	protected isBlockingServerDispatches = false;
+	private isEnableDevTool = false;
 
-	constructor() {
-		logAssert(
-			Storage.SharedClassesId.has(getmetatable(this) as Constructor<Shared>),
-			`Shared class with name ${getmetatable(this)} not decorated`,
-		);
-		this.metadata = `${GetCore().GetSharedDescendant(getmetatable(this) as Constructor<Shared>)}`;
-		this.applyId();
+	private getConstructor() {
+		return getmetatable(this) as Constructor<Shared>;
 	}
 
-	public ResolveReplicationForPlayers(): Player | Player[] | undefined {
-		return undefined;
+	constructor() {
+		super();
+		this.id = generatorId.Next();
+		Storage.SharedClassById.set(this.id, this);
+		const tree = Storage.SharedClasseTrees.get(this.getConstructor());
+		assert(tree, `Shared class ${this.getConstructor()} is not decorated`);
+		this.tree = tree;
+	}
+
+	public ResolveReplicationForPlayers(player: Player): boolean {
+		return true;
+	}
+
+	public GetId() {
+		return this.id;
+	}
+
+	/** @internal @hidden */
+	public __SetId(id: string) {
+		this.id = id;
+	}
+
+	/** @client */
+	public AttachDevTool() {
+		assert(IsClient, "Must be a client");
+		this.isEnableDevTool = true;
+	}
+
+	/** @client */
+	public DisableDevTool() {
+		assert(IsClient, "Must be a client");
+		this.isEnableDevTool = false;
+	}
+
+	/**
+	 * @internal
+	 * @hidden
+	 **/
+	public __DispatchFromServer(actions: BroadcastAction[]) {
+		if (this.isBlockingServerDispatches) return;
+
+		return this.receiver.dispatch(actions);
+	}
+
+	public GenerateInfo(): SharedInfo {
+		return {
+			Id: this.id,
+			Arguments: Storage.SharedClasses.get(this.id)!,
+			Identifier: GetConstructorIdentifier(this.getConstructor()),
+			SharedIdentifier: GetConstructorIdentifier(this.tree[this.tree.size() - 1]),
+			PointerID: this.pointer ? Pointer.GetPointerID(this.pointer) : undefined,
+		};
+	}
+
+	private _onStartServer() {
+		this.broadcaster = CreatePatchBroadcaster({
+			producer: this.producer,
+			dispatch: (player, actions) => {
+				remotes._shared_class_dispatch.fire(player, actions, this.id);
+			},
+
+			beforeDispatch: (player: Player, action) => {
+				return this.ResolveReplicationForPlayers(player) ? action : undefined;
+			},
+
+			beforeHydrate: (player, state) => {
+				return this.ResolveReplicationForPlayers(player) ? state : undefined;
+			},
+		});
+
+		this.connection = remotes._shared_class_start.connect(
+			(player, id) => id === this.id && this.broadcaster.start(player),
+		);
+
+		remotes._shared_class_created_new_instance.fireAll(this.GenerateInfo());
+		this.producer.applyMiddleware(this.broadcaster.middleware);
+	}
+
+	private _onStartClient() {
+		const className = `${getmetatable(this)}`;
+		this.receiver = createPatchBroadcastReceiver({
+			start: () => {
+				remotes._shared_class_start.fire(this.id);
+			},
+
+			OnPatch: (action) => {
+				if (!this.isEnableDevTool || !event) return;
+
+				event.FireServer({
+					name: `${className}_serverDispatch`,
+					args: [action],
+					state: this.producer.getState(),
+				});
+			},
+		});
+
+		const devToolMiddleware: ProducerMiddleware = () => {
+			return (nextAction) => {
+				return (...args) => {
+					const state = nextAction(...args);
+					if (RunService.IsStudio() && event && this.isEnableDevTool) {
+						event.FireServer({ name: `${className}_dispatch`, args: [...args], state });
+					}
+
+					return state;
+				};
+			};
+		};
+
+		this.producer.applyMiddleware(this.receiver.middleware, devToolMiddleware);
 	}
 
 	/**
@@ -50,23 +148,12 @@ export abstract class Shared<S extends object = object> {
 		if (this.isStarted) return;
 
 		this.isStarted = true;
-		this.previousState = this.state;
 
-		this.initSubscribers();
-		this.subcribeState();
-
-		IsClient &&
-			this._maid.GiveTask(
-				rootProducer.subscribe(SelectShared(this.GetFullId()), (state) => {
-					if (state) return;
-					this.Destroy();
-				}),
-			);
-
-		this._maid.GiveTask(() => rootProducer.ClearInstance(this.GetFullId()));
-
-		IsServer && rootProducer.Dispatch(this.GetFullId(), this.state);
+		IsServer && this._onStartServer();
+		IsClient && this._onStartClient();
 		this.onStart();
+
+		return this;
 	}
 
 	protected onStart() {}
@@ -75,159 +162,10 @@ export abstract class Shared<S extends object = object> {
 
 	public Destroy() {
 		this.onDestroy();
-		this._maid.Destroy();
-	}
+		Storage.SharedClasses.delete(this.id);
+		Storage.SharedClassById.delete(this.id);
+		this.connection?.();
 
-	/**
-	 * Get the full ID of the object.
-	 *
-	 * @return {string} the full ID
-	 */
-	public GetFullId(): string {
-		return `${this.prefix}-${this.metadata}-${this.id}`;
-	}
-
-	/**
-	 * Get the state of the object.
-	 *
-	 * @return {S} the state
-	 */
-	public GetState(): S {
-		return this.state as Readonly<S>;
-	}
-
-	private updateState() {
-		const oldState = this.state;
-		this.state = (rootProducer.getState(SelectShared(this.GetFullId())) as S) ?? this.state;
-
-		if (oldState !== this.state) {
-			this.previousState = oldState;
-		}
-	}
-
-	/**
-	 * Dispatches the given state
-	 *
-	 * @param {S} state - the new state to be dispatched
-	 */
-	public Dispatch(state: S) {
-		this.previousState = this.state;
-		this.state = state;
-		rootProducer.Dispatch(this.GetFullId(), this.state);
-	}
-
-	/**
-	 * Subscribe to changes in the state and attach a listener.
-	 *
-	 * @param {Selector<S, R>} selector - the selector function
-	 * @param {(state: R, previousState: R) => void} listener - the listener function
-	 * @param {(state: R) => boolean} [predicate] - optional predicate function
-	 * @return {WrapSubscriber} subscriber object
-	 */
-	public Subscribe<R>(
-		selector: Selector<S, R>,
-		listener: (state: R, previousState: R) => void,
-		predicate?: (state: R, previousState: R) => boolean,
-	): WrapSubscriber {
-		const disconnect = rootProducer.subscribe(this.wrapSelector(selector), predicate, (state, previusState) => {
-			this.updateState();
-			listener(state, previusState);
-		});
-		const subscriber = {
-			Disconnect: disconnect,
-
-			OnlyServer: () => {
-				if (!IsServer) return disconnect;
-				disconnect();
-
-				return disconnect;
-			},
-
-			OnlyClient: () => {
-				if (!IsClient) return disconnect;
-				disconnect();
-
-				return disconnect;
-			},
-		};
-
-		return subscriber;
-	}
-
-	protected flush() {
-		rootProducer.flush();
-	}
-
-	/**
-	 * @internal
-	 * @hidden
-	 */
-	public SetServerId(id: string) {
-		this.changeId(Prefix.Server, id);
-	}
-
-	private applyId() {
-		const id = GetCore().GenerateId();
-		this.changeId(IsServer ? Prefix.Server : Prefix.Client, id);
-	}
-
-	private changeId(prefix: Prefix, id: string) {
-		this.id && GetCore().RemoveSharedInstance(this.GetFullId());
-		this.id && this.prefix !== Prefix.Server && rootProducer.ClearInstance(this.GetFullId());
-		this.id = id;
-		this.prefix = prefix;
-
-		this.id && GetCore().RegisterSharedInstance(this, this.GetFullId());
-		// This method has to be called in the constructor when the state is not ready yet
-		if (!this.state) {
-			return;
-		}
-
-		if (IsServer || (IsClient && prefix === Prefix.Client)) {
-			rootProducer.Dispatch(this.GetFullId(), this.state);
-		}
-
-		rootProducer.flush();
-	}
-
-	private subcribeState() {
-		this.previousState = this.state;
-
-		this._maid.GiveTask(
-			rootProducer.subscribe(
-				(state) => state.replication.States.get(this.GetFullId()),
-				(state, previousState) => {
-					this.state = (state as S) ?? this.state;
-					this.previousState = (previousState as S) ?? this.previousState;
-				},
-			),
-		);
-	}
-
-	private wrapSelector<R>(selector: Selector<S, R>) {
-		return (state: RootState) => {
-			const componentState = state.replication.States.get(this.GetFullId());
-			if (!componentState) {
-				return selector(this.state);
-			}
-			return selector(componentState as S);
-		};
-	}
-
-	private initSubscribers() {
-		const subscribes = subscribers.get(GetCore().GetSharedDescendant(getmetatable(this) as Constructor<Shared>));
-		if (!subscribes) return;
-
-		task.spawn(() => {
-			subscribes.forEach((subscriber) => {
-				this._maid.GiveTask(
-					this.Subscribe(
-						subscriber.selector,
-						(state, previousState) => CallMethod(subscriber.callback, this, state as S, previousState as S),
-						subscriber.predicate,
-					).Disconnect,
-				);
-			});
-		});
+		IsServer && remotes._shared_class_destroy_instance.fireAll(this.id);
 	}
 }

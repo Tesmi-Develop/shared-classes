@@ -1,7 +1,6 @@
 import { ValueStorage } from "shared/testShared";
-import { SharedClasses } from "../source/Core";
-import { SharedClass } from "../source/decorators/sharedClass";
-import { Action } from "../source/decorators";
+import { Action } from "@rbxts/reflex-class";
+import { SharedClass } from "../source/decorators";
 const expect = import("shared/testShared").expect();
 
 @SharedClass()
@@ -21,7 +20,7 @@ class ServerStorage extends ValueStorage {
 	}
 
 	protected onDestroy(): void {
-		print("destroyed", this.GetFullId());
+		print("destroyed");
 	}
 
 	@Action()
@@ -32,7 +31,5 @@ class ServerStorage extends ValueStorage {
 		};
 	}
 }
-
-SharedClasses.StartServer();
 
 new ServerStorage().Start();

@@ -1,219 +1,147 @@
-import {
-	BroadcastReceiver,
-	Broadcaster,
-	ProducerMap,
-	ProducerMiddleware,
-	createBroadcastReceiver,
-	createBroadcaster,
-} from "@rbxts/reflex";
+import { Modding } from "@flamework/core";
 import { remotes } from "../remotes";
-import { rootProducer } from "../state/rootProducer";
-import { Slices } from "../state/slices";
-import { Constructor } from "../types";
-import { CreateGeneratorId, IsClient, IsServer, logAssert, logWarning } from "../utilities";
+import { SharedInfo } from "../types";
+import {
+	AddMapArrayElement,
+	AddMapWithMapElement,
+	GetConstructorIdentifier,
+	GetInheritanceTree,
+	IsClient,
+	IsServer,
+	logAssert,
+	logWarning,
+} from "../utilities";
 import { Shared } from "./Shared";
 import { Storage } from "./Storage";
-import { ReplicatedStorage, RunService } from "@rbxts/services";
-import { restoreNotChangedProperties } from "../restoreNotChangedProperties";
-import { DISPATCH } from "../state/slices/replication";
-import { SelectShared } from "../state/slices/selectors";
-import Immut from "@rbxts/immut";
-import { t } from "@rbxts/t";
+import { Constructor } from "@flamework/core/out/utility";
+import { Pointer } from "./pointer";
 
-const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
-
-interface ConstructorWithIndex<T extends object = object> extends Constructor<T> {
-	__index: object;
+if (IsServer) {
+	remotes._shared_class_get_all_instances.onRequest((player) => {
+		const result = [] as SharedInfo[];
+		Storage.SharedClassById.forEach((v) => result.push(v.GenerateInfo()));
+		return result;
+	});
 }
 
-const devToolMiddleware: ProducerMiddleware = () => {
-	return (nextAction, actionName) => {
-		return (...args) => {
-			const state = nextAction(...args);
-			if (RunService.IsStudio() && event) {
-				event.FireServer({ name: actionName, args: [...args], state });
-			}
-
-			return state;
-		};
-	};
-};
-
-const restoreNotChangedStateMiddleware: ProducerMiddleware = () => {
-	return (nextAction, actionName) => {
-		return (...args) => {
-			if (actionName === DISPATCH) {
-				const [id, newState] = args as Parameters<(typeof rootProducer)[typeof DISPATCH]>;
-				const typedAction = nextAction as (typeof rootProducer)[typeof DISPATCH];
-				const oldState = rootProducer.getState(SelectShared(id));
-
-				if (oldState === undefined || newState === undefined) return nextAction(...args);
-
-				const validatedState = restoreNotChangedProperties(newState, oldState);
-
-				return typedAction(id, validatedState);
-			}
-
-			return nextAction(...args);
-		};
-	};
-};
-
 export namespace SharedClasses {
-	const generator = CreateGeneratorId(true);
-	let broadcaster: Broadcaster;
-	let receiver: BroadcastReceiver<ProducerMap>;
-	let isStartedServer = false;
 	let isStarterClient = false;
 
 	export const RegisterySharedConstructor = (constructor: Constructor<Shared>) => {
-		logAssert(!Storage.SharedClassesId.has(constructor), `Shared class with name ${constructor} already registery`);
+		const tree = GetInheritanceTree<Shared>(constructor, Shared as Constructor<Shared>);
+		const root = tree[tree.size() - 1];
+		Storage.SharedClasseTrees.set(constructor, tree);
 
-		Storage.SharedClasses.set(`${constructor}`, constructor);
-		Storage.SharedClassesId.set(constructor, `${constructor}`);
-	};
+		if (root !== constructor) {
+			AddMapArrayElement(Storage.SharedClassRoots, root, constructor);
+		}
 
-	/**
-	 * @hidden
-	 * @internal
-	 */
-	export const GenerateId = () => generator.Next();
-
-	export const AttachDevToolMiddleware = () => {
-		rootProducer.applyMiddleware(devToolMiddleware);
-	};
-
-	/**
-	 * @hidden
-	 * @internal
-	 */
-	export const RegisterSharedInstance = (instance: Shared, id: string) => {
-		Storage.SharedInstances.set(id, instance);
-	};
-
-	/**
-	 * @hidden
-	 * @internal
-	 */
-	export const RemoveSharedInstance = (id: string) => {
-		Storage.SharedInstances.delete(id);
-	};
-
-	export const GetSharedInstanceFromId = (id: string) => {
-		return Storage.SharedInstances.get(id);
-	};
-
-	export const StartServer = () => {
-		logAssert(IsServer, "StartServer can only be used on the server");
-
-		if (isStartedServer) return;
-		isStartedServer = true;
-
-		broadcaster = createBroadcaster({
-			producers: Slices,
-			hydrateRate: -1,
-
-			beforeDispatch: (player, action) => {
-				if (action.name !== DISPATCH) return action;
-
-				const [id] = action.arguments as Parameters<(typeof rootProducer)[typeof DISPATCH]>;
-				const shared = GetSharedInstanceFromId(id);
-				logAssert(shared, `Component with id ${id} is not found`);
-				const players = shared.ResolveReplicationForPlayers();
-
-				if (!players) return action;
-
-				if (!t.array(t.any)(players)) {
-					return player === players ? action : undefined;
-				}
-
-				return players.includes(player) ? action : undefined;
-			},
-
-			beforeHydrate: (player, state) => {
-				return Immut.produce(state, (draft) => {
-					const states = draft.replication.States;
-
-					states.forEach((_, id) => {
-						const shared = GetSharedInstanceFromId(id);
-						logAssert(shared, `Component with id ${id} is not found`);
-						const players = shared.ResolveReplicationForPlayers();
-
-						if (!players) return;
-
-						if (!t.array(t.any)(players)) {
-							return player !== players && states.delete(id);
-						}
-
-						return !players.includes(player) && states.delete(id);
-					});
-				});
-			},
-
-			dispatch: (player, actions) => {
-				remotes._shared_class_dispatch.fire(player, actions);
-			},
+		if (IsClient) return;
+		tree.forEach((ctr) => {
+			modifySharedConstructor(ctr);
 		});
-
-		rootProducer.applyMiddleware(broadcaster.middleware);
-		remotes._shared_class_start.connect((player) => broadcaster.start(player));
-		initSharedClasses();
 	};
 
-	export const StartClient = () => {
-		logAssert(IsClient, "StartClient can only be used on the server");
+	export const StartClient = async () => {
+		logAssert(IsClient, "StartClient can only be used on the client");
 
 		if (isStarterClient) return;
 		isStarterClient = true;
 
-		receiver = createBroadcastReceiver({
-			start: () => {
-				remotes._shared_class_start.fire();
-			},
+		remotes._shared_class_dispatch.connect((actions, id) => {
+			Storage.SharedClassById.get(id)?.__DispatchFromServer(actions);
 		});
 
-		remotes._shared_class_dispatch.connect((actions) => {
-			receiver.dispatch(actions);
+		const shareds = await remotes._shared_class_get_all_instances();
+
+		shareds.forEach((info) => {
+			const instance = createSharedInstance(info)?.Start();
+			instance?.__SetId(info.Id);
+			instance && Storage.SharedClassById.set(info.Id, instance);
 		});
 
-		rootProducer.applyMiddleware(receiver.middleware, restoreNotChangedStateMiddleware);
-		initSharedClasses();
+		remotes._shared_class_created_new_instance.connect((info) => {
+			const instance = createSharedInstance(info)?.Start();
+			instance?.__SetId(info.Id);
+			instance && Storage.SharedClassById.set(info.Id, instance);
+		});
 
-		rootProducer.observe(
-			(state) => state.replication.InstanceIds,
-			(state, id) => id,
-			(_, index) => {
-				createClientInstance(index as string);
-			},
-		);
+		remotes._shared_class_destroy_instance.connect((id) => {
+			Storage.SharedClassById.get(id)?.Destroy();
+			Storage.SharedClassById.delete(id);
+		});
 	};
 
-	const createClientInstance = (id: string) => {
-		const spiledId = id.split("-");
-		const metadata = spiledId[1]; // example id: server-className-0
-		const sharedClassConstructor = Storage.SharedClasses.get(metadata);
-		if (!sharedClassConstructor) {
-			logWarning(`Shared class with name ${metadata} not registery`);
+	export const GetSharedInstanceFromId = (id: string) => {
+		return Storage.SharedClassById.get(id);
+	};
+
+	const createSharedInstance = ({ SharedIdentifier, Identifier, PointerID, Id, Arguments }: SharedInfo) => {
+		if (!Modding.getObjectFromId(SharedIdentifier)) {
+			logWarning(
+				`Attempt to create shared, but shared class does not exist\n SharedIdentifier: ${SharedIdentifier}`,
+			);
 			return;
 		}
-		const childSharedClass = Storage.SharedClassLinks.get(sharedClassConstructor)!;
-		const args = rootProducer.getState().replication.InstanceArguments.get(id) ?? [];
 
-		const instance = new childSharedClass(...(args as never[]));
-		instance.Start();
-		instance.SetServerId(spiledId[2]);
-	};
+		const FindArguments = (tree: Constructor<Shared>[]) => {
+			let args = undefined as unknown[] | undefined;
 
-	export const GetSharedDescendant = (constructor: Constructor<Shared<object>>) => {
-		let currentClass = constructor as ConstructorWithIndex<Shared<object>>;
-		let metatable = getmetatable(currentClass) as ConstructorWithIndex<Shared<object>>;
+			tree?.forEach((value) => {
+				if (!Arguments.has(GetConstructorIdentifier(value))) return;
+				args = Arguments.get(GetConstructorIdentifier(value));
+			});
 
-		while (currentClass && metatable.__index !== Shared) {
-			currentClass = metatable.__index as ConstructorWithIndex<Shared<object>>;
-			metatable = getmetatable(currentClass) as ConstructorWithIndex<Shared<object>>;
+			return args;
+		};
+
+		// Try get component from pointer
+		if (PointerID) {
+			const pointer = Pointer.GetPointer(PointerID);
+
+			if (!pointer) {
+				logWarning(`Attempt to dispatch component with missing pointer\n PointerID: ${PointerID}`);
+				return;
+			}
+
+			try {
+				const ctr = Modding.getObjectFromId(pointer.GetComponentMetadata()) as Constructor<Shared>;
+
+				const tree = Storage.SharedClasseTrees.get(ctr);
+				assert(tree, `Shared class ${ctr} is not decorated`);
+				const args = FindArguments(tree);
+
+				assert(args, `Shared class ${pointer.GetComponentMetadata()} is not registery on server`);
+
+				return new ctr(...(args as never[]));
+			} catch (error) {
+				logWarning(`${error}\n PointerID: ${PointerID}`);
+			}
+
+			return;
 		}
 
-		return currentClass;
+		// Try get component from indentifier
+		const ctr = Modding.getObjectFromId(Identifier) as Constructor<Shared>;
+		let args = Arguments.get(Identifier);
+		if (ctr) {
+			return new ctr(...(args as never[]));
+		}
+
+		// Try get component from shared identifier
+		const sharedClasses = Storage.SharedClassRoots.get(
+			Modding.getObjectFromId(SharedIdentifier) as Constructor<Shared>,
+		);
+		assert(sharedClasses, `Shared class ${SharedIdentifier} is not registery`);
+
+		if (sharedClasses.size() > 1) {
+			logWarning(
+				`Attempt to allow dispatching when an instance has multiple sharedComponent\n Instance: ${Instance}\n SharedIdentifier: ${SharedIdentifier}\n ServerIdentifier: ${Identifier}`,
+			);
+			return;
+		}
+		args = FindArguments(Storage.SharedClasseTrees.get(sharedClasses[0])!);
+		return new sharedClasses[0]();
 	};
 
 	const modifySharedConstructor = (constructor: Constructor<Shared<object>>) => {
@@ -222,34 +150,13 @@ export namespace SharedClasses {
 
 		typedConstructor.constructor = function (this, ...args) {
 			const result = originalConstructor(this, ...args);
+			const id = GetConstructorIdentifier(constructor);
 			const typedInstance = this as unknown as Shared<object>;
-			rootProducer.SetInstanceArguments(typedInstance.GetFullId(), args);
+			assert(id, `Shared class ${constructor} is not registery`);
+
+			AddMapWithMapElement(Storage.SharedClasses, typedInstance.GetId(), id, args);
 
 			return result;
 		};
-	};
-
-	const initSharedClasses = () => {
-		const sharedClasses = new Map<string, Constructor<Shared<object>>>();
-		Storage.SharedClasses.forEach((constructor) => {
-			const sharedContructor = GetSharedDescendant(constructor);
-			const anotherChildConstructor = Storage.SharedClassLinks.get(sharedContructor);
-
-			logAssert(
-				!anotherChildConstructor,
-				`${constructor}, ${anotherChildConstructor} has same shared class ${sharedContructor}`,
-			);
-
-			if (RunService.IsServer()) {
-				modifySharedConstructor(sharedContructor);
-			}
-
-			sharedClasses.set(`${sharedContructor}`, sharedContructor);
-			Storage.SharedClassLinks.set(sharedContructor, constructor);
-		});
-
-		sharedClasses.forEach((constructor, id) => {
-			Storage.SharedClasses.set(id, constructor);
-		});
 	};
 }

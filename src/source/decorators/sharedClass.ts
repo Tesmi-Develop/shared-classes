@@ -1,4 +1,4 @@
-import { Constructor } from "../../types";
+import { Constructor } from "@flamework/core/out/utility";
 import { SharedClasses } from "../Core";
 import { Shared } from "../Shared";
 
