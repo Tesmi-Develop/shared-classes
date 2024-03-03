@@ -13,7 +13,7 @@ import {
 } from "../utilities";
 import { Shared } from "./Shared";
 import { Storage } from "./Storage";
-import { Constructor } from "@flamework/core/out/utility";
+import { AbstractConstructor, Constructor, isConstructor } from "@flamework/core/out/utility";
 import { Pointer } from "./pointer";
 
 if (IsServer) {
@@ -27,7 +27,7 @@ if (IsServer) {
 export namespace SharedClasses {
 	let isStarterClient = false;
 
-	export const RegisterySharedConstructor = (constructor: Constructor<Shared>) => {
+	export const RegisterySharedConstructor = (constructor: AbstractConstructor<Shared>) => {
 		const tree = GetInheritanceTree<Shared>(constructor, Shared as Constructor<Shared>);
 		const root = tree[tree.size() - 1];
 		Storage.SharedClasseTrees.set(constructor, tree);
@@ -84,7 +84,7 @@ export namespace SharedClasses {
 			return;
 		}
 
-		const FindArguments = (tree: Constructor<Shared>[]) => {
+		const FindArguments = (tree: AbstractConstructor<Shared>[]) => {
 			let args = undefined as unknown[] | undefined;
 
 			tree?.forEach((value) => {
@@ -140,8 +140,12 @@ export namespace SharedClasses {
 			);
 			return;
 		}
+		const foundClass = sharedClasses[0];
 		args = FindArguments(Storage.SharedClasseTrees.get(sharedClasses[0])!);
-		return new sharedClasses[0](...(args as never[]));
+
+		if (isConstructor(foundClass)) {
+			return new (foundClass as Constructor<Shared>)(...(args as never[]));
+		}
 	};
 
 	const modifySharedConstructor = (constructor: Constructor<Shared<object>>) => {

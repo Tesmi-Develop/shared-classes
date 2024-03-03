@@ -1,5 +1,5 @@
 import { Reflect } from "@flamework/core";
-import { Constructor } from "@flamework/core/out/utility";
+import { AbstractConstructor, Constructor } from "@flamework/core/out/utility";
 import { RunService } from "@rbxts/services";
 
 type GeneratorIdReturning<T extends boolean> = T extends true ? string : number;
@@ -28,7 +28,7 @@ const warnString = `--// [${consolePrefix}] //--`;
 export const IsServer = RunService.IsServer();
 export const IsClient = RunService.IsClient();
 
-export function GetConstructorIdentifier(constructor: Constructor) {
+export function GetConstructorIdentifier(constructor: AbstractConstructor) {
 	return (Reflect.getMetadata(constructor, "identifier") as string) ?? "Not found id";
 }
 
@@ -45,7 +45,7 @@ export function AddMapWithMapElement<K, V extends defined, K2>(map: Map<K, Map<K
 	return map2;
 }
 
-export function GetInheritanceTree<T>(constructor: Constructor<T>, parent: Constructor<T>) {
+export function GetInheritanceTree<T>(constructor: AbstractConstructor<T>, parent: Constructor<T>) {
 	let currentClass = constructor as unknown as ConstructorWithIndex;
 	let metatable = getmetatable(currentClass) as ConstructorWithIndex;
 	const tree = [constructor] as Constructor<T>[];

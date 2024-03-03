@@ -1,7 +1,7 @@
 import { CreateGeneratorId, GetConstructorIdentifier, IsClient, IsServer } from "../utilities";
 import { Storage } from "./Storage";
 import { ClassProducer, CreatePatchBroadcaster, createPatchBroadcastReceiver } from "@rbxts/reflex-class";
-import { Constructor } from "@flamework/core/out/utility";
+import { AbstractConstructor, Constructor } from "@flamework/core/out/utility";
 import { BroadcastAction, ProducerMiddleware } from "@rbxts/reflex";
 import { remotes } from "../remotes";
 import { ReplicatedStorage, RunService } from "@rbxts/services";
@@ -18,7 +18,7 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 	private isStarted = false;
 	protected broadcaster!: ReturnType<typeof CreatePatchBroadcaster<S>>;
 	protected receiver!: ReturnType<typeof createPatchBroadcastReceiver>;
-	private tree: Constructor[];
+	private tree: AbstractConstructor[];
 	private id!: string;
 	private connection?: () => void;
 	/** @client */
