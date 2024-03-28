@@ -1,18 +1,27 @@
 {
 	"version": 1,
-	"flameworkVersion": "1.1.1",
+	"flameworkVersion": "1.2.1",
 	"identifiers": {
+		"@rbxts/shared-classes-reflex:out/src/source/pointer@Pointer": "@rbxts/shared-classes-reflex:src/source/pointer@Pointer",
 		"@rbxts/shared-classes-reflex:out/src/source/Shared@Shared": "@rbxts/shared-classes-reflex:src/source/Shared@Shared",
 		"@rbxts/shared-classes-reflex:out/test/src/shared/testShared@ValueStorage": "@rbxts/shared-classes-reflex:test/src/shared/testShared@ValueStorage",
-		"@rbxts/shared-classes-reflex:out/test/src/client/runtime.client@ClientStorage": "@rbxts/shared-classes-reflex:test/src/client/runtime.client@ClientStorage",
 		"@rbxts/shared-classes-reflex:out/src/source/decorators/sharedClass@SharedClass": "@rbxts/shared-classes-reflex:src/source/decorators/sharedClass@SharedClass",
-		"@rbxts/shared-classes-reflex:out/test/src/server/runtime.server@ServerStorage": "@rbxts/shared-classes-reflex:test/src/server/runtime.server@ServerStorage",
-		"@rbxts/shared-classes-reflex:out/test/src/server/runtime.server@A": "@rbxts/shared-classes-reflex:test/src/server/runtime.server@A",
-		"@rbxts/shared-classes-reflex:out/src/source/pointer@Pointer": "@rbxts/shared-classes-reflex:src/source/pointer@Pointer"
+		"@rbxts/shared-classes-reflex:out/test/src/client/runtime.client@ClientStorage": "@rbxts/shared-classes-reflex:test/src/client/runtime.client@ClientStorage",
+		"@rbxts/shared-classes-reflex:out/test/src/server/runtime.server@ServerStorage": "@rbxts/shared-classes-reflex:test/src/server/runtime.server@ServerStorage"
 	},
 	"metadata": {},
 	"identifierPrefix": "@rbxts/shared-classes-reflex",
 	"classes": [
+		{
+			"filePath": "out\\test\\src\\shared\\testShared.lua",
+			"internalId": "@rbxts/shared-classes-reflex:test/src/shared/testShared@ValueStorage",
+			"decorators": [
+				{
+					"internalId": "@rbxts/shared-classes-reflex:src/source/decorators/sharedClass@SharedClass",
+					"name": "SharedClass"
+				}
+			]
+		},
 		{
 			"filePath": "out\\test\\src\\client\\runtime.client.lua",
 			"internalId": "@rbxts/shared-classes-reflex:test/src/client/runtime.client@ClientStorage",
@@ -26,25 +35,6 @@
 		{
 			"filePath": "out\\test\\src\\server\\runtime.server.lua",
 			"internalId": "@rbxts/shared-classes-reflex:test/src/server/runtime.server@ServerStorage",
-			"decorators": [
-				{
-					"internalId": "$:flamework@Service",
-					"name": "Service"
-				},
-				{
-					"internalId": "@rbxts/shared-classes-reflex:src/source/decorators/sharedClass@SharedClass",
-					"name": "SharedClass"
-				}
-			]
-		},
-		{
-			"filePath": "out\\test\\src\\shared\\testShared.lua",
-			"internalId": "@rbxts/shared-classes-reflex:test/src/shared/testShared@ValueStorage",
-			"decorators": []
-		},
-		{
-			"filePath": "out\\test\\src\\server\\runtime.server.lua",
-			"internalId": "@rbxts/shared-classes-reflex:test/src/server/runtime.server@A",
 			"decorators": [
 				{
 					"internalId": "@rbxts/shared-classes-reflex:src/source/decorators/sharedClass@SharedClass",
