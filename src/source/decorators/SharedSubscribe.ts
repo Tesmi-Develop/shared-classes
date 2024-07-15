@@ -4,7 +4,6 @@ import { IsClient, IsServer } from "../../utilities";
 export const SharedSubscribe = <T extends IClassProducer<InferClassProducerState<T>>, R>(
 	side: "Server" | "Client" | "Both" = "Client",
 	selector: (state: InferClassProducerState<T>) => R,
-	predicate?: (state: R, previousState: R) => boolean,
 ) => {
 	return (
 		target: T,
@@ -14,6 +13,6 @@ export const SharedSubscribe = <T extends IClassProducer<InferClassProducerState
 		if (side === "Server" && IsClient) return;
 		if (side === "Client" && IsServer) return;
 
-		return Subscribe(selector, predicate)(target, propertyKey, descriptor);
+		return Subscribe(selector)(target, propertyKey, descriptor);
 	};
 };

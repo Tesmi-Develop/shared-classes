@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Constructor } from "@flamework/core/out/utility";
 import { GetConstructorIdentifier } from "../utilities";
 import type { Shared } from "./Shared";
@@ -23,12 +24,12 @@ export class Pointer {
 		return newPointer;
 	}
 
-	private getConstructor(component: Shared | Constructor<Shared>) {
+	private getConstructor(component: Shared<any> | Constructor<Shared<any>>) {
 		const constructor = getmetatable(component) as typeof Shared;
-		return component instanceof constructor ? (getmetatable(component) as Constructor<Shared>) : component;
+		return component instanceof constructor ? (getmetatable(component) as Constructor<Shared<any>>) : component;
 	}
 
-	public AddComponent(component: Shared | Constructor<Shared>) {
+	public AddComponent(component: Shared<any> | Constructor<Shared<any>>) {
 		const constructor = this.getConstructor(component);
 		const identifier = GetConstructorIdentifier(constructor);
 

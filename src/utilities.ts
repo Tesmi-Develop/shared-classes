@@ -70,3 +70,17 @@ export function logWarning(Message: string) {
 export function logAssert<T>(condition: T, message: string, DisplayTraceback = true): asserts condition {
 	!condition && logError(message, DisplayTraceback);
 }
+
+export function DeepCloneTable<V>(value: ReadonlyArray<V>): Array<V>;
+export function DeepCloneTable<V>(value: ReadonlySet<V>): Set<V>;
+export function DeepCloneTable<K, V>(value: ReadonlyMap<K, V>): Map<K, V>;
+export function DeepCloneTable<T extends object>(value: T): T;
+export function DeepCloneTable<T extends object>(obj: T): T {
+	const result = {};
+
+	for (const [key, value] of pairs(obj)) {
+		result[key as never] = typeIs(value, "table") ? (DeepCloneTable(value as never) as never) : (value as never);
+	}
+
+	return result as T;
+}

@@ -1,32 +1,33 @@
-import { CreateGeneratorId, GetConstructorIdentifier, IsClient, IsServer } from "../utilities";
+import { CreateGeneratorId, DeepCloneTable, GetConstructorIdentifier, IsClient, IsServer } from "../utilities";
 import { Storage } from "./Storage";
-import { ClassProducer, CreatePatchBroadcaster, createPatchBroadcastReceiver } from "@rbxts/reflex-class";
+import { ClassProducer } from "@rbxts/reflex-class";
 import { AbstractConstructor, Constructor } from "@flamework/core/out/utility";
-import { BroadcastAction, ProducerMiddleware } from "@rbxts/reflex";
 import { remotes } from "../remotes";
-import { ReplicatedStorage, RunService } from "@rbxts/services";
+import { Players, ReplicatedStorage, RunService } from "@rbxts/services";
 import { Pointer } from "./pointer";
 import { SharedInfo } from "../types";
+import { ClientSyncer, sync, SyncPatch, SyncPayload } from "@rbxts/charm";
+import { SharedClasses } from "./Core";
 
 const event = ReplicatedStorage.FindFirstChild("REFLEX_DEVTOOLS") as RemoteEvent;
 const generatorId = CreateGeneratorId();
 
-export abstract class Shared<S extends object = object> extends ClassProducer<S> {
+export abstract class Shared<S> extends ClassProducer<S> {
 	protected abstract state: S;
 	protected previousState!: S;
 	protected pointer: Pointer | undefined;
 	private isStarted = false;
-	protected broadcaster!: ReturnType<typeof CreatePatchBroadcaster<S>>;
-	protected receiver!: ReturnType<typeof createPatchBroadcastReceiver>;
+	protected receiver!: ClientSyncer<{}>;
 	private tree: AbstractConstructor[];
 	private id!: string;
 	private connection?: () => void;
 	/** @client */
 	protected isBlockingServerDispatches = false;
 	private isEnableDevTool = false;
+	private broadcastConnection?: () => void;
 
 	private getConstructor() {
-		return getmetatable(this) as Constructor<Shared>;
+		return getmetatable(this) as Constructor<Shared<S>>;
 	}
 
 	constructor() {
@@ -70,10 +71,40 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 	 * @internal
 	 * @hidden
 	 **/
-	public __DispatchFromServer(actions: BroadcastAction[]) {
+	public __DispatchFromServer(payload: SyncPayload<{}>) {
 		if (this.isBlockingServerDispatches) return;
 
-		return this.receiver.dispatch(actions);
+		this.receiver.sync(payload);
+
+		if (!RunService.IsStudio() || !this.isEnableDevTool) return;
+		event.FireServer({
+			name: `${getmetatable(this)}_serverDispatch`,
+			args: [],
+			state: this.atom(),
+		});
+	}
+
+	/**
+	 * Determines whether the given sync patch is allowed to be synced for the specified player.
+	 * WARNING: Argument data is read-only!!!.
+	 *
+	 * @param {Player} player - The player for whom the sync patch is being resolved.
+	 * @param {SyncPatch<S>} data - The sync patch to be resolved.
+	 * @return {boolean} Returns `true` if the sync patch is allowed to be synced for the player, `false` otherwise.
+	 */
+	public ResolveIsSyncForPlayer(player: Player, data: SyncPatch<S>): boolean {
+		return true;
+	}
+
+	/**
+	 * Resolves the sync data for a specific player.
+	 *
+	 * @param {Player} player - The player for whom the sync data is being resolved.
+	 * @param {SyncPatch<S>} data - The sync data to be resolved.
+	 * @return {SyncPatch<S>} - The resolved sync data.
+	 */
+	public ResolveSyncForPlayer(player: Player, data: SyncPatch<S>): SyncPatch<S> {
+		return data;
 	}
 
 	public GenerateInfo(): SharedInfo {
@@ -87,71 +118,50 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 	}
 
 	private _onStartServer() {
-		this.broadcaster = CreatePatchBroadcaster({
-			producer: this.producer,
-			dispatch: (player, actions) => {
-				remotes._shared_class_dispatch.fire(player, actions, this.id);
-			},
+		const observer = SharedClasses.GetAtomObserver();
 
-			beforeDispatch: (player: Player, action) => {
-				return this.ResolveReplicationForPlayers(player) ? action : undefined;
-			},
-
-			beforeHydrate: (player, state) => {
-				return this.ResolveReplicationForPlayers(player) ? state : undefined;
-			},
-		});
-
-		this.connection = remotes._shared_class_start.connect(
-			(player, id) => id === this.id && this.broadcaster.start(player),
-		);
-
-		remotes._shared_class_created_new_instance.fireAll(this.GenerateInfo());
-		this.producer.applyMiddleware(this.broadcaster.middleware);
-	}
-
-	private _onStartClient() {
-		const className = `${getmetatable(this)}`;
-		this.receiver = createPatchBroadcastReceiver({
-			start: () => {
-				remotes._shared_class_start.fire(this.id);
-			},
-
-			OnHydration: (state) => {
-				this.state = state as S;
-			},
-
-			OnPatch: (action) => {
-				this.state = this.producer.getState();
-				if (!this.isEnableDevTool || !event) return;
-
-				event.FireServer({
-					name: `${className}_serverDispatch`,
-					args: [action],
-					state: this.producer.getState(),
-				});
-			},
-		});
-
-		const devToolMiddleware: ProducerMiddleware = () => {
-			return (nextAction) => {
-				return (...args) => {
-					const state = nextAction(...args);
-					if (RunService.IsStudio() && event && this.isEnableDevTool) {
-						event.FireServer({ name: `${className}_dispatch`, args: [...args], state });
-					}
-
-					return state;
-				};
+		const generatePayload = (payload: SyncPatch<S>) => {
+			return {
+				type: "patch",
+				data: {
+					atom: payload,
+				},
 			};
 		};
 
-		this.producer.applyMiddleware(this.receiver.middleware, devToolMiddleware);
+		this.broadcastConnection = observer.Connect(this.atom, (patch) => {
+			const originalPayload = generatePayload(patch);
+
+			Players.GetPlayers().forEach((player) => {
+				if (!this.ResolveIsSyncForPlayer(player, originalPayload.data.atom as never)) return;
+
+				const copyPayload = DeepCloneTable(originalPayload) as { type: "init"; data: { atom: S } };
+				const data = this.ResolveSyncForPlayer(player, copyPayload.data.atom as never);
+				copyPayload.data.atom = data as never;
+
+				remotes._shared_class_dispatch.fire(player, copyPayload, this.id);
+			});
+		});
+
+		const hydrate = (player: Player) => {
+			if (!this.ResolveIsSyncForPlayer(player, this.atom() as never)) return;
+
+			remotes._shared_class_dispatch.fire(player, { type: "init", data: { atom: this.atom() } }, this.id);
+		};
+
+		this.connection = remotes._shared_class_start.connect((player, id) => id === this.id && hydrate(player));
+		remotes._shared_class_created_new_instance.fireAll(this.GenerateInfo());
 	}
 
-	/**
-	 * Start the function
-	 */
+	private _onStartClient() {
+		this.receiver = sync.client({
+			atoms: { atom: this.atom },
+		});
+
+		remotes._shared_class_start.fire(this.id);
+	}
+
+	/** Start the function */
 	public Start() {
 		if (this.isStarted) return;
 
@@ -172,6 +182,7 @@ export abstract class Shared<S extends object = object> extends ClassProducer<S>
 		this.onDestroy();
 		Storage.SharedClasses.delete(this.id);
 		Storage.SharedClassById.delete(this.id);
+		this.broadcastConnection?.();
 		this.connection?.();
 
 		IsServer && remotes._shared_class_destroy_instance.fireAll(this.id);

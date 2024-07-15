@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Modding } from "@flamework/core";
 import { remotes } from "../remotes";
 import { SharedInfo } from "../types";
@@ -11,10 +12,11 @@ import {
 	logAssert,
 	logWarning,
 } from "../utilities";
-import { Shared } from "./Shared";
+import type { Shared } from "./Shared";
 import { Storage } from "./Storage";
 import { AbstractConstructor, Constructor, isConstructor } from "@flamework/core/out/utility";
 import { Pointer } from "./pointer";
+import { AtomObserver } from "@rbxts/observer-charm";
 
 if (IsServer) {
 	remotes._shared_class_get_all_instances.onRequest((player) => {
@@ -26,9 +28,17 @@ if (IsServer) {
 
 export namespace SharedClasses {
 	let isStarterClient = false;
+	const atomObserver = new AtomObserver();
 
-	export const RegisterySharedConstructor = (constructor: AbstractConstructor<Shared>) => {
-		const tree = GetInheritanceTree<Shared>(constructor, Shared as Constructor<Shared>);
+	export const GetAtomObserver = () => atomObserver;
+
+	if (IsServer) {
+		atomObserver.Start();
+	}
+
+	export const RegisterySharedConstructor = (constructor: AbstractConstructor<Shared<any>>) => {
+		const shared = import("./Shared").expect();
+		const tree = GetInheritanceTree<Shared<any>>(constructor, shared.Shared as Constructor<Shared<any>>);
 		const root = tree[tree.size() - 1];
 		Storage.SharedClasseTrees.set(constructor, tree);
 
@@ -84,7 +94,7 @@ export namespace SharedClasses {
 			return;
 		}
 
-		const FindArguments = (tree: AbstractConstructor<Shared>[]) => {
+		const FindArguments = (tree: AbstractConstructor<Shared<any>>[]) => {
 			let args = undefined as unknown[] | undefined;
 
 			tree?.forEach((value) => {
@@ -105,7 +115,7 @@ export namespace SharedClasses {
 			}
 
 			try {
-				const ctr = Modding.getObjectFromId(pointer.GetComponentMetadata()) as Constructor<Shared>;
+				const ctr = Modding.getObjectFromId(pointer.GetComponentMetadata()) as Constructor<Shared<any>>;
 
 				const tree = Storage.SharedClasseTrees.get(ctr);
 				assert(tree, `Shared class ${ctr} is not decorated`);
@@ -122,7 +132,7 @@ export namespace SharedClasses {
 		}
 
 		// Try get component from indentifier
-		const ctr = Modding.getObjectFromId(Identifier) as Constructor<Shared>;
+		const ctr = Modding.getObjectFromId(Identifier) as Constructor<Shared<any>>;
 		let args = Arguments.get(Identifier);
 		if (ctr) {
 			return new ctr(...(args as never[]));
@@ -130,7 +140,7 @@ export namespace SharedClasses {
 
 		// Try get component from shared identifier
 		const sharedClasses = Storage.SharedClassRoots.get(
-			Modding.getObjectFromId(SharedIdentifier) as Constructor<Shared>,
+			Modding.getObjectFromId(SharedIdentifier) as Constructor<Shared<any>>,
 		);
 		assert(sharedClasses, `Shared class ${SharedIdentifier} is not registery`);
 
@@ -144,7 +154,7 @@ export namespace SharedClasses {
 		args = FindArguments(Storage.SharedClasseTrees.get(sharedClasses[0])!);
 
 		if (isConstructor(foundClass)) {
-			return new (foundClass as Constructor<Shared>)(...(args as never[]));
+			return new (foundClass as Constructor<Shared<any>>)(...(args as never[]));
 		}
 	};
 
